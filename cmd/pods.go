@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"text/tabwriter"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jameskingston/k2l/internal/kubectl"
@@ -74,44 +74,66 @@ Arguments support substring matching:
 			return
 		}
 
-		// Print with nice formatting
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		// Calculate column widths (based on actual text, not styled)
+		nameW, statusW, readyW, restartsW, ageW := len("NAME"), len("STATUS"), len("READY"), len("RESTARTS"), len("AGE")
+		for _, pod := range pods {
+			if len(pod.Name) > nameW {
+				nameW = len(pod.Name)
+			}
+			if len(pod.Status) > statusW {
+				statusW = len(pod.Status)
+			}
+			if len(pod.Ready) > readyW {
+				readyW = len(pod.Ready)
+			}
+			restartStr := fmt.Sprintf("%d", pod.Restarts)
+			if len(restartStr) > restartsW {
+				restartsW = len(restartStr)
+			}
+			if len(pod.AgeString) > ageW {
+				ageW = len(pod.AgeString)
+			}
+		}
 
-		// Header
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			headerStyle.Render("NAME"),
-			headerStyle.Render("STATUS"),
-			headerStyle.Render("READY"),
-			headerStyle.Render("RESTARTS"),
+		// Print header with padding
+		fmt.Printf("%s  %s  %s  %s  %s\n",
+			headerStyle.Render(padRight("NAME", nameW)),
+			headerStyle.Render(padRight("STATUS", statusW)),
+			headerStyle.Render(padRight("READY", readyW)),
+			headerStyle.Render(padRight("RESTARTS", restartsW)),
 			headerStyle.Render("AGE"),
 		)
 
+		// Print rows with padding, then style
 		for _, pod := range pods {
-			statusStr := styleStatus(pod.Status)
-			ageStr := ageStyle.Render(pod.AgeString)
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-				pod.Name,
-				statusStr,
-				pod.Ready,
-				pod.Restarts,
-				ageStr,
+			restartStr := fmt.Sprintf("%d", pod.Restarts)
+			fmt.Printf("%s  %s  %s  %s  %s\n",
+				padRight(pod.Name, nameW),
+				styleStatus(padRight(pod.Status, statusW)),
+				padRight(pod.Ready, readyW),
+				padRight(restartStr, restartsW),
+				ageStyle.Render(pod.AgeString),
 			)
 		}
-
-		w.Flush()
 	},
 }
 
 func styleStatus(status string) string {
-	switch status {
-	case "Running":
+	switch {
+	case strings.HasPrefix(status, "Running"):
 		return runningStyle.Render(status)
-	case "Pending", "ContainerCreating":
+	case strings.HasPrefix(status, "Pending"), strings.HasPrefix(status, "ContainerCreating"):
 		return pendingStyle.Render(status)
-	case "Failed", "Error", "CrashLoopBackOff":
+	case strings.HasPrefix(status, "Failed"), strings.HasPrefix(status, "Error"), strings.HasPrefix(status, "CrashLoopBackOff"):
 		return failedStyle.Render(status)
 	default:
 		return status
 	}
+}
+
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }
