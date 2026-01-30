@@ -1,0 +1,124 @@
+#compdef k2l
+
+# Zsh completion script for k2l
+# Install: copy to a directory in your $fpath, or add to .zshrc:
+#   source /path/to/_k2l
+
+_k2l_commands() {
+    local -a commands
+    commands=(
+        'dep:Show deployment YAML'
+        'conf:Show configmap YAML'
+        'shell:Open shell in a pod'
+        'pods:List pods for a deployment'
+        'completion:Generate shell completion scripts'
+        'history:Manage command history'
+    )
+    _describe 'command' commands
+}
+
+_k2l_contexts() {
+    local -a contexts
+    contexts=(${(f)"$(kubectl config get-contexts -o name 2>/dev/null)"})
+    _describe 'context' contexts
+}
+
+_k2l_namespaces() {
+    local context="$1"
+    local -a namespaces
+    if [[ -n "$context" ]]; then
+        # Try to resolve partial context match
+        local actual_context
+        actual_context=$(kubectl config get-contexts -o name 2>/dev/null | grep -i "$context" | head -1)
+        if [[ -n "$actual_context" ]]; then
+            namespaces=(${(f)"$(kubectl --context "$actual_context" get namespaces -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n')"})
+        fi
+    fi
+    _describe 'namespace' namespaces
+}
+
+_k2l_deployments() {
+    local context="$1"
+    local namespace="$2"
+    local -a deployments
+    if [[ -n "$context" && -n "$namespace" ]]; then
+        local actual_context
+        actual_context=$(kubectl config get-contexts -o name 2>/dev/null | grep -i "$context" | head -1)
+        if [[ -n "$actual_context" ]]; then
+            local actual_namespace
+            actual_namespace=$(kubectl --context "$actual_context" get namespaces -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -i "$namespace" | head -1)
+            if [[ -n "$actual_namespace" ]]; then
+                deployments=(${(f)"$(kubectl --context "$actual_context" -n "$actual_namespace" get deployments -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n')"})
+            fi
+        fi
+    fi
+    _describe 'deployment' deployments
+}
+
+_k2l_configmaps() {
+    local context="$1"
+    local namespace="$2"
+    local -a configmaps
+    if [[ -n "$context" && -n "$namespace" ]]; then
+        local actual_context
+        actual_context=$(kubectl config get-contexts -o name 2>/dev/null | grep -i "$context" | head -1)
+        if [[ -n "$actual_context" ]]; then
+            local actual_namespace
+            actual_namespace=$(kubectl --context "$actual_context" get namespaces -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -i "$namespace" | head -1)
+            if [[ -n "$actual_namespace" ]]; then
+                configmaps=(${(f)"$(kubectl --context "$actual_context" -n "$actual_namespace" get configmaps -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n')"})
+            fi
+        fi
+    fi
+    _describe 'configmap' configmaps
+}
+
+_k2l() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '1: :_k2l_commands' \
+        '*::arg:->args'
+
+    case $state in
+        args)
+            case ${line[1]} in
+                dep|shell|pods)
+                    case $CURRENT in
+                        2)
+                            _k2l_contexts
+                            ;;
+                        3)
+                            _k2l_namespaces "${line[2]}"
+                            ;;
+                        4)
+                            _k2l_deployments "${line[2]}" "${line[3]}"
+                            ;;
+                    esac
+                    ;;
+                conf)
+                    case $CURRENT in
+                        2)
+                            _k2l_contexts
+                            ;;
+                        3)
+                            _k2l_namespaces "${line[2]}"
+                            ;;
+                        4)
+                            _k2l_configmaps "${line[2]}" "${line[3]}"
+                            ;;
+                    esac
+                    ;;
+                completion)
+                    _values 'shell' bash zsh fish powershell
+                    ;;
+                history)
+                    _values 'subcommand' clear
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_k2l "$@"
