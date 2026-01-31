@@ -81,6 +81,14 @@ k2l
 # Use arrow keys to select a previous command
 ```
 
+Repeat the most recent command:
+
+```bash
+k2l again
+# or, using the short alias:
+k2l .
+```
+
 Clear history:
 
 ```bash
