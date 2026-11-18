@@ -20,12 +20,16 @@ Commands:
   conf  - Show configmap YAML
   shell - Open shell in a pod
   pods  - List pods for a deployment
+  update-image - Update the image tag for a deployment
 
 Examples:
   k2l dep prod myapp api-server    # Show deployment YAML
   k2l conf prod myapp api-server   # Show configmap YAML
   k2l shell prod myapp api-server  # Open shell in deployment pod
   k2l pods prod myapp api-server   # List pods
+  k2l update-image dev myapp api-server branch_1  # Set image tag to branch_1
+
+The kubectl command that performs the final action is printed to stderr.
 
 Identifiers support substring matching:
   k2l conf prod my api             # Matches myapp, api-server
@@ -68,7 +72,7 @@ func runHistorySelector() {
 	if len(entries) == 0 {
 		fmt.Println("No command history. Run a command first!")
 		fmt.Println("\nUsage: k2l <command> <context> <namespace> <resource>")
-		fmt.Println("\nCommands: dep, conf, shell, pods")
+		fmt.Println("\nCommands: dep, conf, shell, pods, update-image")
 		return
 	}
 

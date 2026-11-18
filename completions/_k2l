@@ -11,6 +11,7 @@ _k2l_commands() {
         'conf:Show configmap YAML'
         'shell:Open shell in a pod'
         'pods:List pods for a deployment'
+        'update-image:Update the image tag for a deployment'
         'completion:Generate shell completion scripts'
         'history:Manage command history'
     )
@@ -84,7 +85,7 @@ _k2l() {
     case $state in
         args)
             case ${line[1]} in
-                dep|shell|pods)
+                dep|shell|pods|update-image)
                     case $CURRENT in
                         2)
                             _k2l_contexts

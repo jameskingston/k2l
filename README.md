@@ -31,6 +31,7 @@ k2l <command> <context> <namespace> <resource>
 | `conf`  | Show configmap YAML |
 | `shell` | Open shell in a pod |
 | `pods`  | List pods for a deployment |
+| `update-image` | Update the image tag for a deployment |
 
 ### Examples
 
@@ -46,6 +47,20 @@ k2l shell prod myapp api-server
 
 # List pods with human-friendly output
 k2l pods prod myapp api-server
+
+# Change a deployment's image tag (repository is kept)
+#   .../live-portal/backend:v1.19.6 -> .../live-portal/backend:branch_1
+k2l update-image pt-eks-dev live-portal-dev live-portal-backend branch_1
+```
+
+### Showing the kubectl command
+
+Each command prints the fully-resolved kubectl command it runs for its final
+action (to stderr, so piped output stays clean), making it easy to share:
+
+```bash
+$ k2l dep prod my api > dep.yaml
+$ kubectl --context prod-cluster -n myapp get deployment api-server -o yaml
 ```
 
 ### Substring Matching
