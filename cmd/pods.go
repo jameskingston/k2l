@@ -63,7 +63,7 @@ Arguments support substring matching:
 		saveToHistory("pods", args)
 
 		// Get pods
-		pods, err := client.GetPodsByDeploymentName(actualDeployment)
+		pods, err := client.GetPodsByDeploymentNameShown(actualDeployment)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

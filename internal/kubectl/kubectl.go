@@ -26,12 +26,13 @@ func NewClient(context, namespace string) *Client {
 	}
 }
 
+func (c *Client) fullArgs(args []string) []string {
+	return append([]string{"--context", c.context, "-n", c.namespace}, args...)
+}
+
 // run executes a kubectl command and returns the output
 func (c *Client) run(args ...string) ([]byte, error) {
-	fullArgs := []string{"--context", c.context, "-n", c.namespace}
-	fullArgs = append(fullArgs, args...)
-
-	cmd := exec.Command("kubectl", fullArgs...)
+	cmd := exec.Command("kubectl", c.fullArgs(args)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -43,12 +44,49 @@ func (c *Client) run(args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// runInteractive runs a kubectl command with terminal attached
-func (c *Client) runInteractive(args ...string) error {
-	fullArgs := []string{"--context", c.context, "-n", c.namespace}
-	fullArgs = append(fullArgs, args...)
+// runShown prints the command to stderr, then executes it like run.
+// Stderr keeps stdout clean for piping (e.g. YAML output).
+func (c *Client) runShown(args ...string) ([]byte, error) {
+	c.printCommand(args)
+	return c.run(args...)
+}
 
-	cmd := exec.Command("kubectl", fullArgs...)
+// printCommand prints the full kubectl command in a copy-pasteable form
+func (c *Client) printCommand(args []string) {
+	fmt.Fprintf(os.Stderr, "$ %s\n", CommandString(c.fullArgs(args)...))
+}
+
+// CommandString renders a kubectl invocation as a shell-quoted command line
+func CommandString(args ...string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "kubectl")
+	for _, a := range args {
+		parts = append(parts, shellQuote(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	safe := true
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// runInteractive prints and runs a kubectl command with terminal attached
+func (c *Client) runInteractive(args ...string) error {
+	c.printCommand(args)
+	cmd := exec.Command("kubectl", c.fullArgs(args)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -74,12 +112,70 @@ func (c *Client) GetDeployment(name string) (string, error) {
 
 // GetDeploymentByName returns the deployment definition in YAML (exact name)
 func (c *Client) GetDeploymentByName(name string) (string, error) {
-	output, err := c.run("get", "deployment", name, "-o", "yaml")
+	output, err := c.runShown("get", "deployment", name, "-o", "yaml")
 	if err != nil {
 		return "", err
 	}
 
 	return string(output), nil
+}
+
+// Container is a container spec within a deployment's pod template
+type Container struct {
+	Name  string
+	Image string
+}
+
+// GetDeploymentContainers returns the (non-init) containers of a deployment (exact name)
+func (c *Client) GetDeploymentContainers(name string) ([]Container, error) {
+	output, err := c.run("get", "deployment", name, "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var dep struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Containers []struct {
+						Name  string `json:"name"`
+						Image string `json:"image"`
+					} `json:"containers"`
+				} `json:"spec"`
+			} `json:"template"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal(output, &dep); err != nil {
+		return nil, fmt.Errorf("failed to parse deployment: %w", err)
+	}
+
+	var containers []Container
+	for _, ct := range dep.Spec.Template.Spec.Containers {
+		containers = append(containers, Container{Name: ct.Name, Image: ct.Image})
+	}
+	return containers, nil
+}
+
+// SetImage sets the image of a container in a deployment (exact names)
+func (c *Client) SetImage(deployment, container, image string) error {
+	output, err := c.runShown("set", "image", "deployment/"+deployment, container+"="+image)
+	if err != nil {
+		return err
+	}
+	fmt.Print(string(output))
+	return nil
+}
+
+// ReplaceImageTag swaps the tag (and drops any digest) of an image reference,
+// e.g. "registry:5000/repo/app:v1" -> "registry:5000/repo/app:<tag>"
+func ReplaceImageTag(image, tag string) string {
+	if i := strings.Index(image, "@"); i >= 0 {
+		image = image[:i]
+	}
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		image = image[:i]
+	}
+	return image + ":" + tag
 }
 
 // GetConfigMap returns the configmap in YAML (resolves name internally)
@@ -100,7 +196,7 @@ func (c *Client) GetConfigMap(name string) (string, error) {
 
 // GetConfigMapByName returns the configmap in YAML (exact name)
 func (c *Client) GetConfigMapByName(name string) (string, error) {
-	output, err := c.run("get", "configmap", name, "-o", "yaml")
+	output, err := c.runShown("get", "configmap", name, "-o", "yaml")
 	if err != nil {
 		return "", err
 	}
@@ -136,11 +232,20 @@ func (c *Client) GetPods(deploymentName string) ([]Pod, error) {
 
 // GetPodsByDeploymentName returns pods for a deployment (exact name)
 func (c *Client) GetPodsByDeploymentName(deploymentName string) ([]Pod, error) {
+	return c.getPods(deploymentName, c.run)
+}
+
+// GetPodsByDeploymentNameShown is GetPodsByDeploymentName, printing the kubectl commands it runs
+func (c *Client) GetPodsByDeploymentNameShown(deploymentName string) ([]Pod, error) {
+	return c.getPods(deploymentName, c.runShown)
+}
+
+func (c *Client) getPods(deploymentName string, run func(args ...string) ([]byte, error)) ([]Pod, error) {
 	// Get pods with label selector matching the deployment
-	output, err := c.run("get", "pods", "-l", fmt.Sprintf("app=%s", deploymentName), "-o", "json")
+	output, err := run("get", "pods", "-l", fmt.Sprintf("app=%s", deploymentName), "-o", "json")
 	if err != nil {
 		// Try without label selector and filter by name
-		output, err = c.run("get", "pods", "-o", "json")
+		output, err = run("get", "pods", "-o", "json")
 		if err != nil {
 			return nil, err
 		}
